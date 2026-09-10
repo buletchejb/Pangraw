@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>PLAYER</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+<style>
+*{user-select:none;-webkit-user-select:none}
+body{margin:0;background:#000;overflow:hidden}
+.controls{transition:opacity 0.3s}
+.watermark{transition: all 1s ease-in-out; position: absolute;}
+#blockScreen{
+    transition: opacity 0.3s;
+    backdrop-filter: blur(10px);
+}
+</style>
+</head>
+<body class="bg-black text-white">
+
+<div id="playerWrap" class="relative w-full h-screen">
+
+    <!-- BLOCK SCREEN PAG SCREENSHOT -->
+    <div id="blockScreen" class="absolute inset-0 bg-black/90 z-[999] flex items-center justify-center text-center opacity-0 pointer-events-none">
+        <div>
+            <div class="text-[40px]">🚫</div>
+            <div class="text-[18px] font-bold">SCREENSHOT DETECTED</div>
+            <div class="text-[14px] text-gray-400">Na-report na ito sa admin</div>
+        </div>
+    </div>
+
+    <!-- UNIQUE MOVING WATERMARK -->
+    <div id="watermark" class="watermark z-40 text-[14px] font-bold tracking-widest text-white/15 opacity-0 pointer-events-none">
+        MOVIEFLIX
+    </div>
+
+    <button id="backBtn" class="absolute top-4 left-4 z-50 text-[28px] bg-black/50 w-10 h-10 rounded-full controls">←</button>
+    <div id="loading" class="absolute inset-0 flex items-center justify-center text-[#aaa] text-[16px]">Loading...</div>
+    <video id="videoPlayer" class="w-full h-screen bg-black"></video>
+    <iframe id="embedPlayer" class="w-full h-screen bg-black hidden" frameborder="0" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+
+    <div id="customControls" class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 controls opacity-0">
+        <input type="range" id="progressBar" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer" value="0" max="100">
+        <div class="flex items-center justify-between mt-2">
+            <div class="flex gap-4">
+                <button id="back10" class="text-[24px]">⏪10</button>
+                <button id="playPause" class="text-[28px]">▶️</button>
+                <button id="fwd10" class="text-[24px]">10⏩</button>
+            </div>
+            <button id="fullscreen" class="text-[24px]">⛶</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script>
+const firebaseConfig = { /* ILAGAY MO DITO */ };
+firebase.initializeApp(firebaseConfig);
+
+const urlParams = new URLSearchParams(window.location.search);
+const videoId = urlParams.get('id');
+const userId = urlParams.get('uid') || 'Guest';
+const userName = urlParams.get('name') || userId;
+
+document.getElementById('watermark').innerText = `MOVIEFLIX - ${userName} - ${userId.slice(-4)}`;
+
+const videoPlayer = document.getElementById('videoPlayer');
+const blockScreen = document.getElementById('blockScreen');
+let watermarkInterval;
+let hideControlsTimer;
+
+const positions = ['top-16 left-4','top-16 right-4','bottom-24 left-4','bottom-24 right-4'];
+let currentPos = 0;
+
+// ========== ANTI SCREENSHOT ==========
+function triggerScreenshotBlock(){
+    videoPlayer.pause();
+    blockScreen.style.opacity = '1';
+    blockScreen.style.pointerEvents = 'auto';
+
+    // LOG SA FIREBASE KUNG SINO NAG SCREENSHOT
+    firebase.database().ref('reports/screenshots/' + userId).push({
+        videoId: videoId,
+        userName: userName,
+        time: new Date().toLocaleString(),
+        currentTime: videoPlayer.currentTime
+    });
+
+    setTimeout(() => {
+        blockScreen.style.opacity = '0';
+        blockScreen.style.pointerEvents = 'none';
+        videoPlayer.play();
+    }, 3000); // 3 SECONDS BLACK SCREEN
+}
+
+// Detect PrintScreen Key sa PC
+document.addEventListener('keyup', (e) => {
+    if(e.key === 'PrintScreen'){
+        triggerScreenshotBlock();
+    }
+});
+
+// Detect Visibility Change - nagana sa Android pag nag screenshot
+document.addEventListener('visibilitychange', () => {
+    if(document.hidden){
+        // Pag lumabas yung notification bar / screenshot menu
+        setTimeout(() => {
+            if(document.hidden) triggerScreenshotBlock();
+        }, 200)
+    }
+});
+// ========== END ANTI SCREENSHOT ==========
+
+function moveWatermark(){
+    watermark.className = `watermark z-40 text-[14px] font-bold tracking-widest text-white/15 opacity-100 pointer-events-none ${positions[currentPos]}`;
+    currentPos = (currentPos + 1) % 4;
+}
+function showWatermark(){
+    moveWatermark(); watermark.style.opacity = '1';
+    clearInterval(watermarkInterval);
+    watermarkInterval = setInterval(moveWatermark, 5000);
+}
+function hideWatermark(){
+    clearInterval(watermarkInterval); watermark.style.opacity = '0';
+}
+function showControls(){
+    document.getElementById('customControls').style.opacity = '1';
+    document.getElementById('backBtn').style.opacity = '1';
+    showWatermark();
+    clearTimeout(hideControlsTimer);
+    hideControlsTimer = setTimeout(()=> {
+        document.getElementById('customControls').style.opacity = '0';
+        document.getElementById('backBtn').style.opacity = '0';
+        hideWatermark();
+    }, 3000);
+}
+
+document.getElementById('playerWrap').onclick = showControls;
+document.getElementById('playPause').onclick = () => { if(videoPlayer.paused) videoPlayer.play(); else videoPlayer.pause(); };
+videoPlayer.onplay = () => document.getElementById('playPause').innerText = '⏸️';
+videoPlayer.onpause = () => document.getElementById('playPause').innerText = '▶️';
+document.getElementById('back10').onclick = () => videoPlayer.currentTime -= 10;
+document.getElementById('fwd10').onclick = () => videoPlayer.currentTime += 10;
+document.getElementById('fullscreen').onclick = () => { if(document.fullscreenElement) document.exitFullscreen(); else document.getElementById('playerWrap').requestFullscreen(); }
+document.getElementById('backBtn').onclick = () => history.back();
+
+function playVideo(url, videoType){
+    if(!url) return alert('Walang videoUrl');
+    document.getElementById('embedPlayer').classList.add('hidden');
+    videoPlayer.classList.add('hidden');
+    document.getElementById('embedPlayer').src = "";
+
+    if(url.includes('embed') || url.includes('youtube') || videoType == 'embed'){
+        document.getElementById('embedPlayer').src = url;
+        document.getElementById('embedPlayer').classList.remove('hidden');
+    } else if(url.includes('.m3u8') || videoType == 'm3u8'){
+        if(Hls.isSupported()) { let hls = new Hls(); hls.loadSource(url); hls.attachMedia(videoPlayer); }
+        else { videoPlayer.src = url; }
+        videoPlayer.classList.remove('hidden'); videoPlayer.play();
+    } else {
+        videoPlayer.src = url;
+        videoPlayer.classList.remove('hidden'); videoPlayer.play();
+    }
+    showWatermark();
+}
+
+if(videoId){
+    firebase.database().ref('videos/' + videoId).once('value').then((snap) => {
+        let currentData = snap.val();
+        document.getElementById('loading').classList.add('hidden');
+        playVideo(currentData.videoUrl, currentData.videoType);
+    });
+}
+</script>
+</body>
+</html>
