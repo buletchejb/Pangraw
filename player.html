@@ -8,11 +8,11 @@
 <style>
 *{user-select:none;-webkit-user-select:none}
 body{margin:0;background:#000;display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial;color:#fff;overflow:hidden}
-.container{width:100%;max-width:1000px;position:relative}
+.container{width:100%;max-width:1000px;position:relative;height:100vh} /* DINAGDAG KO LANG height:100vh */
 .watermark{position:absolute;z-index:999;font-size:14px;font-weight:bold;letter-spacing:2px;color:rgba(255,255,255,0.15);opacity:0;transition:all 1s ease-in-out;pointer-events:none}
 #backBtn{position:absolute;top:16px;left:16px;z-index:1000;font-size:28px;background:rgba(0,0,0,0.5);width:40px;height:40px;border-radius:50%;border:none;color:white;cursor:pointer}
-.player-error-message{color:#ffdddd;background:#330000;border:1px solid #660000;padding:15px;border-radius:5px;text-align:center}
-.plyr{width:100%;height:100vh}
+.player-error-message{color:#ffdddd;background:#330000;border:1px solid #660000;padding:15px;border-radius:5px;text-align:center;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;z-index:1001} /* DINAGDAG KO LANG CENTER */
+.plyr, iframe{width:100%;height:100vh;border:none} /* DINAGDAG KO LANG, iframe */
 </style>
 </head>
 <body>
@@ -26,101 +26,100 @@ body{margin:0;background:#000;display:flex;justify-content:center;align-items:ce
 <script src="https://ajax.googleapis.com/ajax/libs/shaka-player/4.7.11/shaka-player.compiled.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const params = new URLSearchParams(window.location.search);
-    const encodedUrl = params.get('url');
-    const playerType = params.get('type')?.toLowerCase();
-    const paramId = params.get('id'); // UID
-    const paramName = params.get('name'); // NAME
-    const paramKey = params.get('key'); // MPD Key
+const params = new URLSearchParams(window.location.search);
+const encodedUrl = params.get('url');
+const playerType = params.get('type')?.toLowerCase();
+const paramId = params.get('id'); // UID
+const paramName = params.get('name'); // NAME
+const paramKey = params.get('key'); // MPD Key
+let videoUrl = null;
+if (encodedUrl) {
+try { videoUrl = atob(encodedUrl); } catch (e) { showError('Invalid base64 encoding'); return; }
+}
+// WATERMARK
+const watermark = document.getElementById('watermark');
+const userId = paramId || 'Guest';
+const userName = paramName || userId;
+watermark.innerText = `MOVIEFLIX - ${userName} - ${userId.slice(-4)}`;
+const positions = ['top:64px;left:16px','top:64px;right:16px','bottom:96px;left:16px','bottom:96px;right:16px'];
+let currentPos = 0;
+function moveWatermark(){
+watermark.style = `position:absolute;${positions[currentPos]};z-index:999;font-size:14px;font-weight:bold;letter-spacing:2px;color:rgba(255,255,255,0.15);opacity:1`;
+currentPos = (currentPos + 1) % 4;
+}
+moveWatermark();
+setInterval(moveWatermark, 5000);
+const container = document.getElementById('player-container');
+let playerElement;
+let plyrInstance;
+function showError(message) {
+container.innerHTML = `<button id="backBtn">←</button><div class='player-error-message'><strong>Error:</strong> ${message}</div>`; // DINAGDAG KO BACKBTN
+document.getElementById('backBtn').onclick = () => window.history.back();
+}
+if (!playerType) { showError('type is missing'); return; }
+// SUPPORT BOTH "youtube" AT "embed"
+if (playerType === 'youtube' || playerType === 'embed') {
+let provider = 'youtube'; // DINAGDAG
+let embedId = videoUrl; // DINAGDAG
+if(videoUrl.includes('vimeo')){ provider = 'vimeo'; embedId = videoUrl.split('vimeo.com/')[1]?.split('?')[0]; } // DINAGDAG
+else if(videoUrl.includes('facebook')){ provider = 'facebook'; embedId = videoUrl; } // DINAGDAG
+else { embedId = videoUrl.split('v=')[1]?.split('&')[0] || videoUrl.split('youtu.be/')[1]?.split('?')[0] || videoUrl; } // BINAGO
 
-    let videoUrl = null;
-    if (encodedUrl) {
-        try { videoUrl = atob(encodedUrl); } 
-        catch (e) { showError('Invalid base64 encoding'); return; }
-    }
-
-    // WATERMARK
-    const watermark = document.getElementById('watermark');
-    const userId = paramId || 'Guest';
-    const userName = paramName || userId;
-    watermark.innerText = `MOVIEFLIX - ${userName} - ${userId.slice(-4)}`;
-    const positions = ['top:64px;left:16px','top:64px;right:16px','bottom:96px;left:16px','bottom:96px;right:16px'];
-    let currentPos = 0;
-    function moveWatermark(){
-        watermark.style = `position:absolute;${positions[currentPos]};z-index:999;font-size:14px;font-weight:bold;letter-spacing:2px;color:rgba(255,255,255,0.15);opacity:1`;
-        currentPos = (currentPos + 1) % 4;
-    }
-    moveWatermark(); 
-    setInterval(moveWatermark, 5000);
-
-    const container = document.getElementById('player-container');
-    let playerElement; 
-    let plyrInstance;
-
-    function showError(message) {
-        container.innerHTML = `<div class='player-error-message'><strong>Error:</strong> ${message}</div>`;
-    }
-
-    if (!playerType) { showError('type is missing'); return; }
-
-    // SUPPORT BOTH "youtube" AT "embed"
-    if (playerType === 'youtube' || playerType === 'embed') {
-        const youtubeVideoId = videoUrl.split('v=')[1]?.split('&')[0] || videoUrl.split('youtu.be/')[1]?.split('?')[0] || videoUrl;
-        if (youtubeVideoId && youtubeVideoId.length === 11) {
-            playerElement = document.createElement('div');
-            playerElement.setAttribute('data-plyr-provider', 'youtube');
-            playerElement.setAttribute('data-plyr-embed-id', youtubeVideoId);
-            container.appendChild(playerElement);
-            plyrInstance = new Plyr(playerElement, {autoplay: true, muted: true});
-        } else { showError('Invalid YouTube URL'); }
-    } 
-    else {
-        if (!videoUrl) { showError('url is missing'); return; }
-        playerElement = document.createElement('video');
-        playerElement.playsinline = true; 
-        playerElement.autoplay = true; 
-        playerElement.muted = true;
-        container.appendChild(playerElement);
-
-        switch(playerType) {
-            case 'mp4':
-                playerElement.src = videoUrl; 
-                plyrInstance = new Plyr(playerElement);
-                break;
-            case 'm3u8':
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(videoUrl);
-                    hls.attachMedia(playerElement);
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => { 
-                        plyrInstance = new Plyr(playerElement);
-                        plyrInstance.play();
-                    });
-                    hls.on(Hls.Events.ERROR, (e,d) => { if(d.fatal) showError('HLS Error: ' + d.details); });
-                } else { showError('HLS not supported'); }
-                break;
-            case 'mpd':
-                if (shaka.Player.isBrowserSupported()) {
-                    const shakaPlayer = new shaka.Player(playerElement);
-                    if(paramId && paramKey) {
-                        shakaPlayer.configure({drm:{clearKeys:{[paramId]:paramKey}}});
-                    }
-                    shakaPlayer.load(videoUrl).then(() => { 
-                        plyrInstance = new Plyr(playerElement);
-                        plyrInstance.play();
-                    }).catch(e => showError('MPD Error: ' + e));
-                } else { showError('MPD not supported'); }
-                break;
-            default:
-                showError('Unsupported type: ' + playerType);
-        }
-    }
-
-    if(plyrInstance) {
-        plyrInstance.on('ready', () => plyrInstance.play().catch(()=>{}));
-    }
-
-    document.getElementById('backBtn').onclick = () => window.history.back();
+if (embedId) { // BINAGO
+playerElement = document.createElement('div');
+playerElement.setAttribute('data-plyr-provider', provider); // BINAGO
+playerElement.setAttribute('data-plyr-embed-id', embedId); // BINAGO
+container.appendChild(playerElement);
+plyrInstance = new Plyr(playerElement, {autoplay: true, muted: true});
+} else {
+showError('Invalid Embed URL');
+}
+} else {
+if (!videoUrl) { showError('url is missing'); return; }
+playerElement = document.createElement('video');
+playerElement.playsinline = true;
+playerElement.autoplay = true;
+playerElement.muted = true;
+container.appendChild(playerElement);
+switch(playerType) {
+case 'mp4':
+playerElement.src = videoUrl;
+plyrInstance = new Plyr(playerElement);
+break;
+case 'm3u8':
+if (Hls.isSupported()) {
+const hls = new Hls();
+hls.loadSource(videoUrl);
+hls.attachMedia(playerElement);
+hls.on(Hls.Events.MANIFEST_PARSED, () => {
+plyrInstance = new Plyr(playerElement);
+plyrInstance.play();
+});
+hls.on(Hls.Events.ERROR, (e,d) => { if(d.fatal) showError('HLS Error: ' + d.details); });
+} else { showError('HLS not supported'); }
+break;
+case 'mpd':
+if (shaka.Player.isBrowserSupported()) {
+const shakaPlayer = new shaka.Player(playerElement);
+if(paramId && paramKey) { shakaPlayer.configure({drm:{clearKeys:{[paramId]:paramKey}}}); }
+shakaPlayer.load(videoUrl).then(() => {
+plyrInstance = new Plyr(playerElement);
+plyrInstance.play();
+}).catch(e => showError('MPD Error: ' + e));
+} else { showError('MPD not supported'); }
+break;
+default:
+// DINAGDAG: AUTO IFRAME FALLBACK KUNG DI SUPPORTED
+playerElement = document.createElement('iframe');
+playerElement.src = videoUrl;
+playerElement.allowFullscreen = true;
+playerElement.allow = "autoplay; fullscreen";
+container.appendChild(playerElement);
+}
+if(plyrInstance) {
+plyrInstance.on('ready', () => plyrInstance.play().catch(()=>{}));
+}
+document.getElementById('backBtn').onclick = () => window.history.back();
 });
 </script>
 </body>
